@@ -17,12 +17,14 @@ int Bridge_Count = 0;
 bool greenNorth = false;
 bool greenSouth = false;
 sem_t semo;
+sem_t semb;
 
 //The two threads needed.
 pthread_t reader;
 pthread_t carTracker;
 pthread_t passedCars;
 
+pthread_t bremove[5];
 
 void updateGUI(void){
 	sem_wait(&semo);
@@ -93,6 +95,26 @@ void transmitSignal(uint8_t signal){
 
 }
 
+uint btcount = 0;
+
+void *removeCar(void *arg){
+	sleep(5);
+	sem_wait(&semb);
+	Bridge_Count--;
+	updateGUI();
+	sem_post(&semb);
+	return NULL;
+}
+
+void crcThread(){
+	pthread_t thr = bremove[btcount];
+	if (btcount > 4){
+		btcount = 0;
+	} else {
+		btcount++;
+	}
+	pthread_create(&thr, NULL, removeCar, 0);
+}
 
 void *updateBridge(void *arg){
 	
@@ -101,14 +123,20 @@ void *updateBridge(void *arg){
 		if(greenNorth && north_Queue > 0){
 			north_Queue--;
 			transmitSignal(0b0010);
+			sem_wait(&semb);
 			Bridge_Count++;
 			updateGUI();
+			sem_post(&semb);
+			crcThread();
 		}
 		else if (greenSouth && south_Queue > 0){
 			south_Queue--;
 			transmitSignal(0b1000);
+			sem_wait(&semb);
 			Bridge_Count++;
 			updateGUI();
+			sem_post(&semb);
+			crcThread();
 		}
 		
 		sleep(1);	
@@ -118,16 +146,8 @@ void *updateBridge(void *arg){
 
 void *bridge_remove(void *arg){
 	
-	while(true){s
+	while(true){
 		
-		if(Bridge_Count>0){
-			
-			sleep(5);
-			Bridge_Count--;
-			
-			updateGUI();
-			
-		}
 	}
 }
 
@@ -145,6 +165,32 @@ void *lightReader(void *arg) {
 
 		//See if there is a message or not.
 		if (data > 0) {
+			switch(dataIn){
+				case(0b0001):
+					greenNorth = true;
+					break;
+				case (0b0010):
+					greenNorth = false;
+					break;
+				case (0b0100):
+					greenSouth = true;
+					break;
+				case (0b1000):
+					greenSouth = false;
+					break;
+				case (0b1010):
+					greenNorth = false;
+					greenSouth = false;
+					break;
+				case (0b1001):
+					greenNorth = true;
+					greenSouth = false;
+					break;
+				case (0b0110):
+					greenNorth = false;
+					greenSouth = true;
+					break;
+			}
 
 			//Both Red.
 			if (dataIn == 0b1010) {
@@ -188,14 +234,14 @@ void inputReader(void){
 		
 		//North Car Add.
 		if (key == 'n') {
-			transmitSignal(0x1);
+			transmitSignal(0b0001);
 			north_Queue++;
 			updateGUI();
 		}
 		
 		//South Car Add.
 		else if (key == 's') {
-			transmitSignal(0x4);
+			transmitSignal(0b0100);
 			south_Queue++;
 			updateGUI();
 
@@ -217,10 +263,10 @@ printf("Hello World \n}");
 
 serialPortConfig();
 sem_init(&semo, 0, 1);
+sem_init(&semb, 0, 1);
 
 pthread_create(&reader, NULL, lightReader, 0);
 pthread_create(&carTracker, NULL, updateBridge, 0);
-pthread_create(&passedCars, NULL, bridge_remove, 0);
 
 inputReader();
 
